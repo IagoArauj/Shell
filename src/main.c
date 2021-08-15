@@ -14,12 +14,14 @@
 #define FAT_NAME "fat.part"
 #define END_FILE 0xffff
 #define CLUSTER_START (CLUSTER_SIZE) * 10
-
 #define IS_FILE 0
 #define IS_DIR 1
 #define CLUSTER_FREE 0
 #define CLUSTER_OCCUPIED 1
 
+/**
+ * Estrutura que representa uma entrada de arquivo ou diretório
+*/
 typedef struct
 {
     uint8_t filename[18];
@@ -29,6 +31,9 @@ typedef struct
     uint32_t size;
 } dir_entry_t;
 
+/**
+ * Estrutura que representa um cluster na memoria, e pode conter dados ou entradas para outros diretórios
+*/
 typedef union
 {
     dir_entry_t dir[CLUSTER_SIZE / sizeof(dir_entry_t)];
@@ -41,6 +46,11 @@ dir_entry_t root_dir[ENTRY_BY_CLUSTER];
 data_cluster clusters[4086];
 uint8_t free_clusters[NUM_CLUSTER];
 
+/**
+ * Encontra a primeira posição de cluster livre na tabela fat, percorrendo o array free_clusters
+ *
+ * @return int representa o posição do cluster na tabela fat
+*/
 int find_free_cluster()
 {
     for (int cluster_entry = 9; cluster_entry < NUM_CLUSTER; cluster_entry++)
@@ -56,6 +66,12 @@ int find_free_cluster()
     return -1;
 }
 
+/**
+ * Escreve no arquivo FAT_NAME os dados de um cluster
+ *
+ * @param int posição do cluster que será salvo
+ * @param data_cluster cluster que será salvo
+*/
 void write_data(int cluster, data_cluster data)
 {
     FILE *file = fopen(FAT_NAME, "rb+");
@@ -64,6 +80,13 @@ void write_data(int cluster, data_cluster data)
     fclose(file);
 }
 
+/**
+ * Lê do arquivo FAT_NAME os dados de um cluster
+ * 
+ * @param int posição do cluster que será lido
+ * 
+ * @return data_cluster cluster lido pela função
+*/
 data_cluster load_data(int cluster)
 {
     data_cluster data;
@@ -85,14 +108,21 @@ data_cluster load_data(int cluster)
     return data;
 }
 
+/**
+ * Atualiza a tabela fat no arquivo FAT_NAME
+*/
 void write_fat()
 {
+    //Lê o arquivo
     FILE *file = fopen(FAT_NAME, "rb+");
     fseek(file, CLUSTER_SIZE, SEEK_SET);
     fwrite(&fat, sizeof(fat), 1, file);
     fclose(file);
 }
 
+/**
+ * Função que preenche na memória os dados padrões determinados pelo PDF da atividade
+*/
 void init()
 {
     char response;
@@ -103,8 +133,7 @@ void init()
     if (response != 's' && response != 'S')
         return;
 
-    FILE *file;
-    file = fopen(FAT_NAME, "wb");
+    FILE *file = fopen(FAT_NAME, "wb");
     if (file == NULL)
     {
         printf("Erro ao abrir o arquivo\n");
@@ -141,14 +170,21 @@ void init()
     printf("Operação concluída!\n");
 }
 
-//Carrega a tabela fat da memoria
+/**
+ * Carrega o boot block, a fat e o root dir do 
+ * arquivo FAT_NAME para a memória
+ * 
+ * @param int flag se a mensagem de "Operação concluída"
+ * deve ser mostrada, usada para a atualização automática
+ * entre as operações do shell
+*/
 void load(int flag)
 {
     FILE *file;
     file = fopen(FAT_NAME, "rb");
     if (file == NULL)
     {
-        printf("Erro ao abrir o arquivo\n");
+        printf("Erro ao abrir o arquivo &\n");
         exit(1);
     }
 
@@ -164,8 +200,15 @@ void load(int flag)
         printf("Operação concluída!\n");
 }
 
-/*Cria uma nova entrada:
-    - attributes = 1 →
+/** 
+ * Cria uma nova entrada de nome dir no parent_dir. Os 
+ * attributes podem ser ou IS_DIR para criar um diretório 
+ * ou IS_FILE para criar um arquivo
+ * 
+ * @param char[18] nome da entrada que será adicionada
+ * @param data_cluster data cluster do diretório pai
+ * @param int cluster onde o pai está
+ * @param int atributos da entrada
 */
 void new_entry(char dir[18], data_cluster parent_dir, int parent_cluster, int attributes)
 {
@@ -229,6 +272,12 @@ void new_entry(char dir[18], data_cluster parent_dir, int parent_cluster, int at
         printf("Arquivo \"%s\" criado!\n", dir);
 }
 
+/**
+ * Mostra todas as entradas de diretório válidas 
+ * no parent_dir
+ * 
+ * @param data_cluster data cluster do diretório pai
+*/
 void ls(data_cluster parent_dir)
 {
     int i;
@@ -245,6 +294,13 @@ void ls(data_cluster parent_dir)
     }
 }
 
+/**
+ * Exclui a entrada dir no parent dir
+ * 
+ * @param char* nome da entrada a ser excluída
+ * @param data_cluster data cluster do diretório pai
+ * @param int número do cluster do pai
+*/
 void del(char dir[18], data_cluster parent_dir, int parent_cluster)
 {
     int i;
@@ -271,7 +327,8 @@ void del(char dir[18], data_cluster parent_dir, int parent_cluster)
             fat[aux] = 0x00;
         }
         fat[block] = 0x00;
-        printf("Arquivo delatado com sucesso!\n");
+        printf("Arquivo deletado com sucesso!\n");
+        return;
     }
 
     data_cluster data = load_data(parent_dir.dir[i].first_block);
@@ -285,14 +342,21 @@ void del(char dir[18], data_cluster parent_dir, int parent_cluster)
     memset(&(parent_dir.dir[i]), 0x00, sizeof(parent_dir.dir[i]));
     write_fat();
     write_data(parent_cluster, parent_dir);
-    printf("Diretório delatado com sucesso!\n");
+    printf("Diretório deletado com sucesso!\n");
 }
 
+/**
+ * Escreve stream no arquivo que começa no
+ * bloco first_cluster
+ * 
+ * @param char* primeiro bloco do arquivo
+ * @param int tamanho atual do arquivo
+ * 
+ * @return int com o tamanho do arquivo
+*/
 int write_file(char *stream, int first_cluster)
 {
-    printf("steam / cluster size: %f\n", (float)strlen(stream) / CLUSTER_SIZE);
     long num_blocks = ceil((float)strlen(stream) / CLUSTER_SIZE);
-    printf("Blocos necessários: %d\n", num_blocks);
     int curr_cluster = first_cluster;
 
     while (fat[curr_cluster] != END_FILE)
@@ -349,6 +413,15 @@ int write_file(char *stream, int first_cluster)
     return num_blocks * CLUSTER_SIZE;
 }
 
+/**
+ * Lê e retorna um conjunto de caracteres do arquivo
+ * que começa no bloco first_cluster
+ * 
+ * @param int primeiro bloco do arquivo
+ * @param int tamanho atual do arquivo
+ * 
+ * @return char* com o texto contido no arquivo
+*/
 char *read_file(int first_cluster, int size)
 {
     int curr_cluster = first_cluster, num_blocks = size / CLUSTER_SIZE;
@@ -365,6 +438,16 @@ char *read_file(int first_cluster, int size)
     return stream;
 }
 
+/**
+ * Escreve stream no final do arquivo que começa no
+ * bloco first_cluster
+ * 
+ * @param char* texto que será inserido no final do arquivo
+ * @param int primeiro bloco do arquivo
+ * @param int tamanho atual do arquivo
+ * 
+ * @return int com o tamanho do arquivo
+*/
 int append_file(char *stream, int first_cluster, int curr_size)
 {
     int curr_cluster = first_cluster, num_blocks = curr_size / CLUSTER_SIZE, final_cluster;
@@ -429,7 +512,7 @@ int append_file(char *stream, int first_cluster, int curr_size)
             fclose(file);
             return curr_size;
         }
-        
+
         fclose(file);
     }
 
@@ -457,8 +540,6 @@ int main()
     char *input;
     while ((input = readline("SHELL V-POWER → ")) != 0)
     {
-        load(0);
-
         add_history(input);
         char *command = strtok(input, " ");
 
@@ -480,7 +561,7 @@ int main()
             {
                 next = strtok(NULL, "/");
                 data_cluster parent_dir = load_data(parent_cluster);
-                // mkdir /teste/foo
+
                 if (next == NULL)
                 {
                     if (dir == NULL)
@@ -554,7 +635,7 @@ int main()
             {
                 next = strtok(NULL, "/");
                 data_cluster parent_dir = load_data(parent_cluster);
-                // mkdir /teste/foo
+
                 if (next == NULL)
                 {
                     if (dir == NULL)
@@ -596,7 +677,7 @@ int main()
             {
                 next = strtok(NULL, "/");
                 data_cluster parent_dir = load_data(parent_cluster);
-                // mkdir /teste/foo
+
                 if (next == NULL)
                 {
                     if (dir == NULL)
@@ -640,7 +721,7 @@ int main()
             {
                 next = strtok(NULL, "/");
                 data_cluster parent_dir = load_data(parent_cluster);
-                // mkdir /teste/foo
+
                 if (next == NULL)
                 {
                     if (file == NULL)
@@ -658,7 +739,6 @@ int main()
                         }
                     }
 
-                    //new_entry(file, parent_dir, parent_cluster, IS_FILE);
                     break;
                 }
 
@@ -715,15 +795,18 @@ int main()
                         printf("Entrada inválida!\n");
                         break;
                     }
-
-                    printf("%s\n", read_file(curr_cluster, size));
                     break;
                 }
 
                 int i;
                 for (i = 0; i < ENTRY_BY_CLUSTER; i++)
                 {
-                    if (strcmp(entry, parent_dir.dir[i].filename) == 0 && parent_dir.dir[i].attributes == IS_DIR)
+                    if (parent_dir.dir[i].size == 0)
+                    {
+                        i = ENTRY_BY_CLUSTER;
+                        break;
+                    }
+                    else if (strcmp(entry, parent_dir.dir[i].filename) == 0 && parent_dir.dir[i].attributes == IS_DIR)
                     {
                         curr_cluster = parent_dir.dir[i].first_block;
                         break;
@@ -735,6 +818,8 @@ int main()
                     printf("O diretorio \"%s\" não existe\n", entry);
                     break;
                 }
+
+                entry = next;
             }
         }
         else if (strcmp(command, "append") == 0)
@@ -749,7 +834,6 @@ int main()
             {
                 next = strtok(NULL, "/");
                 data_cluster parent_dir = load_data(parent_cluster);
-                // mkdir /teste/foo
                 if (next == NULL)
                 {
                     if (file == NULL)
@@ -789,50 +873,11 @@ int main()
                 file = next;
             }
         }
-        else if (strcmp(command, "dump") == 0)
-        {
-            /*printf("Entrei\n");
-            printf("root[0]: %i\n", root_dir[0].size);
-            printf("fat[0]: %i\n", fat[0]);
-            int a = 10;
-            int b = 5;
-            int x;
-            int numero = 10;
-            numero >= 0 ? numero++ : numero--;
-            a == b ? (x = a) : (x = b);
-            printf("%d\n", x);
-            printf("free_clusters[0]: %i\n", free_clusters[0]);
-            char *parentDir = strtok(NULL, "/");
-            int i = 0;
-            while (parentDir != NULL)
-            {
-                printf("%d -> %s\n", i++, parentDir);
-                parentDir = strtok(NULL, "/");
-            }
-            int cluster = 1;
-            FILE *file = fopen(FAT_NAME, "rb+");
-            fseek(file, (CLUSTER_SIZE), SEEK_SET);
-            uint16_t test;
-            fread(&test, sizeof(test), 1, file);
-            printf("0x%x\n", test);
-            char *stream = strtok(NULL, "\"");
-            //stream += 1;
-            //stream[strlen(stream) - 1] = '\0';
-            printf("String → %s\n", stream);
-            char *path = strtok(NULL, " ");
-            printf("Path -> '%s'\n", path);
-            char *meajudadeus = strtok(path, "/");
-            printf("Path -> '%s'\n", meajudadeus);
-            meajudadeus = strtok(NULL, "/");
-            printf("Path -> '%s'\n", meajudadeus);
-            printf("tam stream -> %d\n", sizeof(stream));
-            printf("tam char -> %d\n", sizeof(char));*/
-            printf("\\0 -> %x\n", '\0');
-        }
-
         else
         {
             printf("Comando inválido!\n");
         }
+
+        load(0);
     }
 }
